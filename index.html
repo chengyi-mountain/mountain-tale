@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>山中行 · 澄一</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #0e0f12;
+    overflow: hidden;
+    font-family: "KaiTi", "STKaiti", "楷体", serif;
+    touch-action: none;
+  }
+  #game {
+    display: block;
+    margin: 0 auto;
+    background: linear-gradient(to bottom, #1a1c20 0%, #2a2d33 60%, #1f2228 100%);
+  }
+  #hud {
+    position: fixed;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #d8d4c8;
+    font-size: 18px;
+    letter-spacing: 0.3em;
+    z-index: 10;
+    text-shadow: 0 0 10px rgba(0,0,0,0.8);
+  }
+  #overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(14,15,18,0.92);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #e8e4d8;
+    z-index: 100;
+    text-align: center;
+    padding: 2rem;
+  }
+  #overlay h1 {
+    font-size: 2.5rem;
+    letter-spacing: 0.3em;
+    margin-bottom: 1rem;
+    font-weight: normal;
+  }
+  #overlay p {
+    color: #8a8a8a;
+    line-height: 2;
+    letter-spacing: 0.15em;
+    margin-bottom: 2rem;
+  }
+  #overlay button {
+    background: transparent;
+    border: 1px solid #8b3a3a;
+    color: #b85450;
+    padding: 12px 40px;
+    font-family: inherit;
+    font-size: 1rem;
+    letter-spacing: 0.4em;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  #overlay button:hover {
+    background: #8b3a3a;
+    color: #fff;
+  }
+  #overlay .final {
+    font-size: 1.3rem;
+    color: #d8d4c8;
+    margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <span id="score">0</span> · <span id="lives">◆◆◆</span>
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="overlay">
+  <h1>山 中 行</h1>
+  <p>
+    你是守山人林砚。<br>
+    深夜巡山，黑影自林中来。<br><br>
+    ← → 移动 · 空格 射符<br>
+    手机：手指拖动移动，自动射符
+  </p>
+  <button id="startBtn">入 山</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const overlay = document.getElementById("overlay");
+const startBtn = document.getElementById("startBtn");
+const scoreEl = document.getElementById("score");
+const livesEl = document.getElementById("lives");
+
+function resize() {
+  canvas.width = Math.min(window.innerWidth, 480);
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
+
+// 玩家
+const player = {
+  x: 240, y: 0, w: 30, h: 30,
+  speed: 5, lives: 3, score: 0,
+  cooldown: 0
+};
+
+let bullets = [];
+let enemies = [];
+let particles = [];
+let keys = {};
+let gameRunning = false;
+let touchX = null;
+let enemyTimer = 0;
+
+function reset() {
+  player.x = canvas.width / 2;
+  player.y = canvas.height - 80;
+  player.lives = 3;
+  player.score = 0;
+  bullets = [];
+  enemies = [];
+  particles = [];
+  enemyTimer = 0;
+  updateHUD();
+}
+
+function updateHUD() {
+  scoreEl.textContent = player.score;
+  livesEl.textContent = "◆".repeat(player.lives) + "◇".repeat(3 - player.lives);
+}
+
+function spawnEnemy() {
+  const size = 20 + Math.random() * 20;
+  enemies.push({
+    x: Math.random() * (canvas.width - size),
+    y: -size,
+    w: size, h: size,
+    speed: 1.5 + Math.random() * 2 + player.score / 200
+  });
+}
+
+function shoot() {
+  bullets.push({ x: player.x, y: player.y - 20, w: 3, h: 12, speed: 8 });
+}
+
+function explode(x, y) {
+  for (let i = 0; i < 12; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.5) * 4,
+      life: 30
+    });
+  }
+}
+
+document.addEventListener("keydown", e => { keys[e.key] = true; });
+document.addEventListener("keyup", e => { keys[e.key] = false; });
+
+canvas.addEventListener("touchmove", e => {
+  e.preventDefault();
+  touchX = e.touches[0].clientX - canvas.getBoundingClientRect().left;
+}, { passive: false });
+canvas.addEventListener("touchstart", e => {
+  e.preventDefault();
+  touchX = e.touches[0].clientX - canvas.getBoundingClientRect().left;
+}, { passive: false });
+
+startBtn.onclick = () => {
+  reset();
+  overlay.style.display = "none";
+  gameRunning = true;
+  requestAnimationFrame(loop);
+};
+
+function gameOver() {
+  gameRunning = false;
+  overlay.querySelector("h1").textContent = "山 路 穷";
+  overlay.querySelector("p").innerHTML = "你击倒了 " + player.score + " 个黑影。";
+  startBtn.textContent = "再 入";
+  overlay.style.display = "flex";
+}
+
+function loop() {
+  if (!gameRunning) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 移动
+  if (keys["ArrowLeft"] || keys["a"]) player.x -= player.speed;
+  if (keys["ArrowRight"] || keys["d"]) player.x += player.speed;
+  if (keys[" "] && player.cooldown <= 0) {
+    shoot();
+    player.cooldown = 15;
+  }
+  if (touchX !== null) player.x = touchX;
+  if (player.cooldown > 0) player.cooldown--;
+
+  // 自动射击（手机）
+  if (touchX !== null && player.cooldown <= 0) {
+    shoot(); player.cooldown = 20;
+  }
+
+  player.x = Math.max(player.w/2, Math.min(canvas.width - player.w/2, player.x));
+
+  // 子弹
+  bullets.forEach(b => b.y -= b.speed);
+  bullets = bullets.filter(b => b.y > -20);
+
+  // 敌人
+  enemyTimer--;
+  if (enemyTimer <= 0) {
+    spawnEnemy();
+    enemyTimer = Math.max(30, 80 - player.score);
+  }
+  enemies.forEach(e => e.y += e.speed);
+
+  // 碰撞：子弹打敌人
+  bullets.forEach((b, bi) => {
+    enemies.forEach((e, ei) => {
+      if (b.x < e.x + e.w && b.x + b.w > e.x &&
+          b.y < e.y + e.h && b.y + b.h > e.y) {
+        bullets.splice(bi, 1);
+        enemies.splice(ei, 1);
+        player.score += 10;
+        explode(e.x + e.w/2, e.y + e.h/2);
+        updateHUD();
+      }
+    });
+  });
+
+  // 碰撞：敌人撞玩家
+  enemies.forEach((e, ei) => {
+    if (e.x < player.x + player.w/2 && e.x + e.w > player.x - player.w/2 &&
+        e.y < player.y + player.h/2 && e.y + e.h > player.y - player.h/2) {
+      enemies.splice(ei, 1);
+      player.lives--;
+      explode(player.x, player.y);
+      updateHUD();
+      if (player.lives <= 0) { gameOver(); return; }
+    }
+  });
+
+  // 敌人到底部
+  enemies = enemies.filter(e => {
+    if (e.y > canvas.height) { player.lives--; updateHUD(); if (player.lives <= 0) gameOver(); return false; }
+    return true;
+  });
+
+  // 粒子
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+
+  // === 绘制 ===
+  // 远山
+  ctx.fillStyle = "rgba(40,42,48,0.6)";
+  ctx.beginPath();
+  ctx.moveTo(0, canvas.height - 150);
+  for (let x = 0; x <= canvas.width; x += 40) {
+    ctx.lineTo(x, canvas.height - 150 - Math.sin(x * 0.02) * 40 - Math.random() * 5);
+  }
+  ctx.lineTo(canvas.width, canvas.height);
+  ctx.lineTo(0, canvas.height);
+  ctx.fill();
+
+  // 玩家（守山人：一个小道士剪影）
+  ctx.fillStyle = "#d8d4c8";
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, 8, 0, Math.PI * 2); // 头
+  ctx.fill();
+  ctx.fillRect(player.x - 6, player.y + 5, 12, 18); // 身
+
+  // 子弹（符咒光点）
+  ctx.fillStyle = "#e8c87a";
+  bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+  // 敌人（黑影）
+  ctx.fillStyle = "#3a3d45";
+  enemies.forEach(e => {
+    ctx.beginPath();
+    ctx.ellipse(e.x + e.w/2, e.y + e.h/2, e.w/2, e.h/2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 红眼
+    ctx.fillStyle = "#b85450";
+    ctx.fillRect(e.x + e.w/2 - 5, e.y + e.h/2 - 3, 3, 3);
+    ctx.fillRect(e.x + e.w/2 + 2, e.y + e.h/2 - 3, 3, 3);
+    ctx.fillStyle = "#3a3d45";
+  });
+
+  // 粒子
+  particles.forEach(p => {
+    ctx.fillStyle = `rgba(232,228,216,${p.life / 30})`;
+    ctx.fillRect(p.x, p.y, 2, 2);
+  });
+
+  requestAnimationFrame(loop);
+}
+</script>
+
+</body>
+</html>
